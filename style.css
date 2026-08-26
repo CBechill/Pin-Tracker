@@ -82,6 +82,27 @@ body {
   font-size: 14px;
 }
 
+.storage-badge {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.storage-badge.is-synced { color: var(--series-1); font-weight: 600; }
+
+.error-banner {
+  margin: 0 0 16px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  font-size: 13px;
+}
+
+.btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.btn:disabled:hover { background: transparent; }
+
 .layout {
   display: grid;
   grid-template-columns: 1fr 1fr;

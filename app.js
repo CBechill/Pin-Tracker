@@ -3,6 +3,7 @@
 
   const STORAGE_KEY = "reta-tracker-entries";
   const THEME_KEY = "reta-tracker-theme";
+  const API_BASE = "/api/entries";
   const HALF_LIFE_DAYS = 6;
   const FUTURE_PROJECTION_DAYS = 5;
 
@@ -42,7 +43,7 @@
 
   // ---------- state ----------
 
-  let entries = loadEntries();
+  let entries = [];
   let currentMonth = (() => {
     const t = new Date();
     return { year: t.getFullYear(), month: t.getMonth() }; // 0-indexed month
@@ -51,7 +52,13 @@
   let editingId = null;
   let chartRange = "all"; // "30" | "90" | "all"
 
-  function loadEntries() {
+  // "api"   - a backend (server.js) is present; entries live in its data file
+  //           and are shared by every device that opens this page.
+  // "local" - no backend responded (e.g. GitHub Pages); entries live only
+  //           in this browser's localStorage, same as before.
+  let storageMode = "local";
+
+  function loadLocalEntries() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return [];
@@ -62,7 +69,7 @@
     }
   }
 
-  function saveEntries() {
+  function saveLocalEntries() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
     } catch {
@@ -70,8 +77,70 @@
     }
   }
 
+  async function apiCreateEntry(entry) {
+    const res = await fetch(API_BASE, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(entry),
+    });
+    if (!res.ok) throw new Error("Failed to create entry");
+    return res.json();
+  }
+
+  async function apiUpdateEntry(id, entry) {
+    const res = await fetch(`${API_BASE}/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(entry),
+    });
+    if (!res.ok) throw new Error("Failed to update entry");
+    return res.json();
+  }
+
+  async function apiDeleteEntry(id) {
+    const res = await fetch(`${API_BASE}/${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (!res.ok) throw new Error("Failed to delete entry");
+  }
+
+  async function detectAndLoadEntries() {
+    try {
+      const res = await fetch(API_BASE, { headers: { Accept: "application/json" } });
+      const contentType = res.headers.get("content-type") || "";
+      if (res.ok && contentType.includes("application/json")) {
+        storageMode = "api";
+        const data = await res.json();
+        return Array.isArray(data) ? data : [];
+      }
+    } catch {
+      /* no backend reachable (e.g. static hosting) - fall back below */
+    }
+    storageMode = "local";
+    return loadLocalEntries();
+  }
+
   function entriesOnDate(dateStr) {
     return entries.filter((e) => e.date === dateStr);
+  }
+
+  function setFormBusy(busy) {
+    document.getElementById("entry-submit").disabled = busy;
+    document.getElementById("entry-cancel").disabled = busy;
+  }
+
+  function showError(message) {
+    const banner = document.getElementById("error-banner");
+    banner.textContent = message;
+    banner.classList.remove("hidden");
+  }
+
+  function hideError() {
+    document.getElementById("error-banner").classList.add("hidden");
+  }
+
+  function updateStorageBadge() {
+    const badge = document.getElementById("storage-badge");
+    badge.textContent = storageMode === "api" ? "Synced to server" : "Saved on this device only";
+    badge.classList.toggle("is-synced", storageMode === "api");
   }
 
   // ---------- theme ----------
@@ -171,7 +240,7 @@
     document.getElementById("entry-cancel").addEventListener("click", resetForm);
   }
 
-  function onSubmit(e) {
+  async function onSubmit(e) {
     e.preventDefault();
     const date = document.getElementById("entry-date").value;
     const dose = parseFloat(document.getElementById("entry-dose").value);
@@ -179,26 +248,43 @@
 
     if (!date || !Number.isFinite(dose) || dose < 0) return;
 
-    if (editingId) {
-      const entry = entries.find((en) => en.id === editingId);
-      if (entry) {
-        entry.date = date;
-        entry.dose = dose;
-        entry.note = note;
+    setFormBusy(true);
+    try {
+      if (storageMode === "api") {
+        if (editingId) {
+          const updated = await apiUpdateEntry(editingId, { date, dose, note });
+          const idx = entries.findIndex((en) => en.id === editingId);
+          if (idx !== -1) entries[idx] = updated;
+        } else {
+          entries.push(await apiCreateEntry({ date, dose, note }));
+        }
+      } else {
+        if (editingId) {
+          const entry = entries.find((en) => en.id === editingId);
+          if (entry) {
+            entry.date = date;
+            entry.dose = dose;
+            entry.note = note;
+          }
+        } else {
+          entries.push({
+            id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random())),
+            date,
+            dose,
+            note,
+          });
+        }
+        saveLocalEntries();
       }
-    } else {
-      entries.push({
-        id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random())),
-        date,
-        dose,
-        note,
-      });
+      hideError();
+      resetForm();
+      selectedDate = date;
+      renderAll();
+    } catch {
+      showError("Couldn't save that entry - is the tracker server running?");
+    } finally {
+      setFormBusy(false);
     }
-
-    saveEntries();
-    resetForm();
-    selectedDate = date;
-    renderAll();
   }
 
   function resetForm() {
@@ -226,15 +312,22 @@
     window.scrollTo({ top: document.getElementById("form-heading").offsetTop - 20, behavior: "smooth" });
   }
 
-  function deleteEntry(id) {
+  async function deleteEntry(id) {
     const entry = entries.find((en) => en.id === id);
     if (!entry) return;
     const label = `${formatDateLabel(entry.date, { year: true })} — ${entry.dose} mg`;
     if (!window.confirm(`Delete this entry?\n${label}`)) return;
-    entries = entries.filter((en) => en.id !== id);
-    saveEntries();
-    if (editingId === id) resetForm();
-    renderAll();
+
+    try {
+      if (storageMode === "api") await apiDeleteEntry(id);
+      entries = entries.filter((en) => en.id !== id);
+      if (storageMode === "local") saveLocalEntries();
+      if (editingId === id) resetForm();
+      hideError();
+      renderAll();
+    } catch {
+      showError("Couldn't delete that entry - is the tracker server running?");
+    }
   }
 
   // ---------- entries list ----------
@@ -555,7 +648,7 @@
     renderEntriesList();
   }
 
-  document.addEventListener("DOMContentLoaded", () => {
+  document.addEventListener("DOMContentLoaded", async () => {
     document.getElementById("halflife-label").textContent = String(HALF_LIFE_DAYS);
 
     initTheme();
@@ -575,6 +668,9 @@
 
     initForm();
     initChartControls();
+
+    entries = await detectAndLoadEntries();
+    updateStorageBadge();
     renderAll();
   });
 })();
