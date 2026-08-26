@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Reta Tracker</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="app">
+
+  <header class="app-header">
+    <div class="header-text">
+      <h1>Reta Tracker</h1>
+      <p class="subtitle">Retatrutide dosing log &amp; half-life projection</p>
+    </div>
+    <button id="theme-toggle" class="btn btn-ghost" type="button" aria-label="Toggle dark mode">
+      <span id="theme-toggle-label">Dark</span>
+    </button>
+  </header>
+
+  <main class="layout">
+
+    <section class="card calendar-card" aria-labelledby="cal-month-label">
+      <div class="calendar-header">
+        <button id="cal-prev" class="btn btn-icon" type="button" aria-label="Previous month">&#8249;</button>
+        <h2 id="cal-month-label">Month</h2>
+        <button id="cal-next" class="btn btn-icon" type="button" aria-label="Next month">&#8250;</button>
+      </div>
+      <div class="calendar-weekdays">
+        <span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span>
+      </div>
+      <div id="calendar-grid" class="calendar-grid"></div>
+      <div class="calendar-legend">
+        <span class="legend-dot"></span> Pinned day
+        <span class="legend-today">Today</span>
+      </div>
+    </section>
+
+    <section class="card form-card" aria-labelledby="form-heading">
+      <h2 id="form-heading">Log a pin</h2>
+      <form id="entry-form" class="entry-form">
+        <input type="hidden" id="entry-id" />
+        <label class="field">
+          <span>Date</span>
+          <input type="date" id="entry-date" required />
+        </label>
+        <label class="field">
+          <span>Dose (mg)</span>
+          <input type="number" id="entry-dose" min="0" step="0.05" placeholder="e.g. 2" required />
+        </label>
+        <label class="field">
+          <span>Note <span class="optional">(optional)</span></span>
+          <input type="text" id="entry-note" placeholder="e.g. left thigh" maxlength="120" />
+        </label>
+        <div class="form-actions">
+          <button type="submit" id="entry-submit" class="btn btn-primary">Add entry</button>
+          <button type="button" id="entry-cancel" class="btn btn-ghost hidden">Cancel</button>
+        </div>
+      </form>
+
+      <div class="stat-tile">
+        <span class="stat-label">Estimated level today</span>
+        <span id="stat-value" class="stat-value">0 mg</span>
+        <span id="stat-sub" class="stat-sub">No entries logged yet</span>
+      </div>
+    </section>
+
+    <section class="card chart-card" aria-labelledby="chart-heading">
+      <div class="chart-header">
+        <div>
+          <h2 id="chart-heading">Amount in system</h2>
+          <p class="chart-subtitle">Modeled with a <span id="halflife-label">6</span>-day half-life · dashed = projected, assuming no further pins</p>
+        </div>
+        <div class="range-controls" role="group" aria-label="Date range">
+          <button class="btn btn-pill" data-range="30" type="button">30D</button>
+          <button class="btn btn-pill" data-range="90" type="button">90D</button>
+          <button class="btn btn-pill is-active" data-range="all" type="button">All</button>
+        </div>
+      </div>
+      <div id="chart-container" class="chart-container">
+        <p id="chart-empty" class="empty-state">Log a pin to see your projected level here.</p>
+        <svg id="chart-svg" class="chart-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+        <div id="chart-tooltip" class="chart-tooltip hidden"></div>
+      </div>
+    </section>
+
+    <section class="card entries-card" aria-labelledby="entries-heading">
+      <h2 id="entries-heading">History</h2>
+      <div id="entries-list" class="entries-list">
+        <p id="entries-empty" class="empty-state">No pins logged yet.</p>
+      </div>
+    </section>
+
+  </main>
+</div>
+<script src="app.js" defer></script>
+</body>
+</html>
