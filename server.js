@@ -120,28 +120,45 @@ function readRequestBody(req) {
   return new Promise((resolve, reject) => {
     let data = "";
     let size = 0;
+    let tooLarge = false;
     req.on("data", (chunk) => {
+      if (tooLarge) return; // already rejected - drain and discard the rest
       size += chunk.length;
       if (size > 1e6) {
+        tooLarge = true;
+        // Note: intentionally not req.destroy() here - that severs the
+        // socket res shares with req, so the error response below could
+        // never actually reach the client (confirmed: it was silently
+        // dropping the connection instead of returning 400).
         reject(new Error("Request body too large"));
-        req.destroy();
         return;
       }
       data += chunk;
     });
-    req.on("end", () => resolve(data));
+    req.on("end", () => { if (!tooLarge) resolve(data); });
     req.on("error", reject);
   });
 }
 
+// Explicit allowlist, not a directory serve - this repo checkout also holds
+// server.js, README.md, .git/, and (at runtime) data/*.json with the user's
+// actual logged entries. Serving PUBLIC_DIR generically would expose all of
+// that to anyone on the LAN; only these exact app files are ever served.
+const STATIC_FILES = {
+  "/": "index.html",
+  "/index.html": "index.html",
+  "/style.css": "style.css",
+  "/app.js": "app.js",
+};
+
 function serveStatic(req, res, pathname) {
-  const safePath = path.normalize(pathname === "/" ? "/index.html" : pathname).replace(/^(\.\.[/\\])+/, "");
-  const fullPath = path.join(PUBLIC_DIR, safePath);
-  if (!fullPath.startsWith(PUBLIC_DIR)) {
-    res.writeHead(403);
-    res.end("Forbidden");
+  const file = STATIC_FILES[pathname];
+  if (!file) {
+    res.writeHead(404, { "Content-Type": "text/plain" });
+    res.end("Not found");
     return;
   }
+  const fullPath = path.join(PUBLIC_DIR, file);
   fs.readFile(fullPath, (err, data) => {
     if (err) {
       res.writeHead(404, { "Content-Type": "text/plain" });

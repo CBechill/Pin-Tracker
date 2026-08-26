@@ -62,6 +62,22 @@ to install — just Node.js.
 Because it's LAN-only with no login, don't expose port 3000 to the internet
 (no port-forward, no reverse-proxy without adding auth in front of it).
 
+If the service fails to start and `journalctl -u pin-tracker` points at a
+namespace/mount error, your LXC's AppArmor profile is blocking the unit's
+sandboxing directives - delete the `NoNewPrivileges`/`PrivateTmp`/
+`ProtectSystem`/`ReadWritePaths` lines from the service file, then
+`systemctl daemon-reload && systemctl restart pin-tracker`.
+
+### Updating
+
+```
+cd /opt/pin-tracker
+git pull
+systemctl restart pin-tracker
+```
+
+Your data lives in `data/` (git-ignored), so pulling new code never touches it.
+
 ## The math
 
 For a dose `D` given at time `t0`, the amount remaining at time `t` is:
