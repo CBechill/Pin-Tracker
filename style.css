@@ -8,9 +8,18 @@
   --gridline: #e1e0d9;
   --baseline: #c3c2b7;
   --series-1: #2a78d6;
-  --series-1-wash: rgba(42, 120, 214, 0.10);
   --border: rgba(11, 11, 11, 0.10);
   --danger: #d03b3b;
+
+  /* Categorical palette - fixed order, used to color-code compounds */
+  --cat-1: #2a78d6; /* blue */
+  --cat-2: #eb6834; /* orange */
+  --cat-3: #1baf7a; /* aqua */
+  --cat-4: #eda100; /* yellow */
+  --cat-5: #e87ba4; /* magenta */
+  --cat-6: #008300; /* green */
+  --cat-7: #4a3aa7; /* violet */
+  --cat-8: #e34948; /* red */
 }
 
 @media (prefers-color-scheme: dark) {
@@ -24,9 +33,17 @@
     --gridline: #2c2c2a;
     --baseline: #383835;
     --series-1: #3987e5;
-    --series-1-wash: rgba(57, 135, 229, 0.14);
     --border: rgba(255, 255, 255, 0.10);
     --danger: #e66767;
+
+    --cat-1: #3987e5;
+    --cat-2: #d95926;
+    --cat-3: #199e70;
+    --cat-4: #c98500;
+    --cat-5: #d55181;
+    --cat-6: #008300;
+    --cat-7: #9085e9;
+    --cat-8: #e66767;
   }
 }
 
@@ -40,10 +57,29 @@
   --gridline: #2c2c2a;
   --baseline: #383835;
   --series-1: #3987e5;
-  --series-1-wash: rgba(57, 135, 229, 0.14);
   --border: rgba(255, 255, 255, 0.10);
   --danger: #e66767;
+
+  --cat-1: #3987e5;
+  --cat-2: #d95926;
+  --cat-3: #199e70;
+  --cat-4: #c98500;
+  --cat-5: #d55181;
+  --cat-6: #008300;
+  --cat-7: #9085e9;
+  --cat-8: #e66767;
 }
+
+/* Compound color slots - assigned by each compound's position, cycling.
+   --accent is what dots, swatches, and the chart read; falls back to blue. */
+.cat-0 { --accent: var(--cat-1); }
+.cat-1 { --accent: var(--cat-2); }
+.cat-2 { --accent: var(--cat-3); }
+.cat-3 { --accent: var(--cat-4); }
+.cat-4 { --accent: var(--cat-5); }
+.cat-5 { --accent: var(--cat-6); }
+.cat-6 { --accent: var(--cat-7); }
+.cat-7 { --accent: var(--cat-8); }
 
 * { box-sizing: border-box; }
 
@@ -109,7 +145,7 @@ body {
   gap: 20px;
 }
 
-.chart-card, .entries-card {
+.chart-card, .entries-card, .weight-card {
   grid-column: 1 / -1;
 }
 
@@ -161,7 +197,7 @@ body {
   color: var(--text-secondary);
 }
 .btn-pill.is-active {
-  background: var(--series-1-wash);
+  background: color-mix(in srgb, var(--series-1) 10%, transparent);
   border-color: var(--series-1);
   color: var(--series-1);
   font-weight: 600;
@@ -208,25 +244,30 @@ body {
 .cal-day:hover { background: var(--gridline); }
 .cal-day.is-empty { visibility: hidden; cursor: default; }
 .cal-day.is-today { border-color: var(--baseline); font-weight: 700; }
-.cal-day.is-selected { border-color: var(--series-1); background: var(--series-1-wash); }
+.cal-day.is-selected {
+  border-color: var(--series-1);
+  background: color-mix(in srgb, var(--series-1) 10%, transparent);
+}
+.cal-day-dots { display: flex; align-items: center; gap: 3px; }
 .cal-day .dot {
   width: 6px; height: 6px; border-radius: 50%;
-  background: var(--series-1);
+  background: var(--accent, var(--series-1));
 }
 .calendar-legend {
   margin-top: 12px;
   display: flex;
   align-items: center;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 6px 14px;
   font-size: 12px;
   color: var(--text-secondary);
 }
+.legend-item { display: inline-flex; align-items: center; gap: 5px; }
 .legend-dot {
   width: 6px; height: 6px; border-radius: 50%;
-  background: var(--series-1); display: inline-block;
+  background: var(--accent, var(--series-1)); display: inline-block;
 }
 .legend-today {
-  margin-left: 16px;
   padding: 1px 8px;
   border: 1px solid var(--baseline);
   border-radius: 999px;
@@ -236,7 +277,7 @@ body {
 .entry-form { display: flex; flex-direction: column; gap: 12px; }
 .field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-secondary); }
 .field .optional { color: var(--text-muted); font-weight: 400; }
-.field input {
+.field input, .field select {
   font: inherit;
   padding: 9px 10px;
   border-radius: 8px;
@@ -244,8 +285,14 @@ body {
   background: var(--page-plane);
   color: var(--text-primary);
 }
-.field input:focus { outline: 2px solid var(--series-1); outline-offset: 1px; }
+.field input:focus, .field select:focus { outline: 2px solid var(--series-1); outline-offset: 1px; }
 .form-actions { display: flex; gap: 10px; margin-top: 2px; }
+
+.field-row { display: flex; gap: 10px; }
+.field-row .field { flex: 1; min-width: 0; }
+.field-row .field.field-narrow { flex: 0 0 110px; }
+
+.card-hint { margin: -8px 0 14px; font-size: 12px; color: var(--text-muted); }
 
 .stat-tile {
   margin-top: 20px;
@@ -269,6 +316,16 @@ body {
   margin-bottom: 14px;
 }
 .chart-subtitle { margin: 2px 0 0; font-size: 13px; color: var(--text-secondary); }
+.chart-header-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.compound-select {
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--page-plane);
+  color: var(--text-primary);
+}
 .range-controls { display: flex; gap: 6px; }
 .chart-container { position: relative; width: 100%; }
 .chart-svg { width: 100%; height: 280px; display: block; overflow: visible; }
@@ -296,18 +353,18 @@ body {
 .axis-label { fill: var(--text-muted); font-size: 11px; }
 .today-line { stroke: var(--baseline); stroke-width: 1; }
 .today-label { fill: var(--text-muted); font-size: 10px; }
-.area-fill { fill: var(--series-1-wash); stroke: none; }
-.level-line { fill: none; stroke: var(--series-1); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.area-fill { fill: color-mix(in srgb, var(--accent, var(--series-1)) 12%, transparent); stroke: none; }
+.level-line { fill: none; stroke: var(--accent, var(--series-1)); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .level-line-projected {
-  fill: none; stroke: var(--series-1); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round;
+  fill: none; stroke: var(--accent, var(--series-1)); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round;
   stroke-dasharray: 3 4; opacity: 0.55;
 }
-.dose-marker { fill: var(--series-1); stroke: var(--surface-1); stroke-width: 2; }
-.end-marker { fill: var(--series-1); stroke: var(--surface-1); stroke-width: 2; }
+.dose-marker { fill: var(--accent, var(--series-1)); stroke: var(--surface-1); stroke-width: 2; }
+.end-marker { fill: var(--accent, var(--series-1)); stroke: var(--surface-1); stroke-width: 2; }
 .tail-marker { fill: var(--text-muted); stroke: var(--surface-1); stroke-width: 2; }
 .end-label { fill: var(--text-primary); font-size: 12px; font-weight: 600; }
 .hover-line { stroke: var(--baseline); stroke-width: 1; }
-.hover-dot { fill: var(--series-1); stroke: var(--surface-1); stroke-width: 2; }
+.hover-dot { fill: var(--accent, var(--series-1)); stroke: var(--surface-1); stroke-width: 2; }
 
 /* Entries list */
 .entries-list { display: flex; flex-direction: column; }
@@ -326,3 +383,37 @@ body {
 .entry-row-actions { display: flex; gap: 6px; }
 .btn-danger { color: var(--danger); border-color: transparent; }
 .btn-danger:hover { background: var(--gridline); }
+
+.entry-compound-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.entry-compound-tag .swatch {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent, var(--series-1));
+  flex-shrink: 0;
+}
+
+/* Compounds card */
+.compounds-list { display: flex; flex-direction: column; margin-bottom: 16px; }
+.compound-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--gridline);
+}
+.compound-row:last-child { border-bottom: none; }
+.compound-swatch {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--accent, var(--series-1));
+  flex-shrink: 0;
+}
+.compound-info { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.compound-name { font-weight: 600; font-size: 14px; }
+.compound-meta { font-size: 12px; color: var(--text-secondary); }
+.compound-row-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.compound-row-actions .btn { padding: 6px 10px; font-size: 12px; }

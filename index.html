@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Reta Tracker</title>
+<title>Pin Tracker</title>
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -11,8 +11,8 @@
 
   <header class="app-header">
     <div class="header-text">
-      <h1>Reta Tracker</h1>
-      <p class="subtitle">Retatrutide dosing log &amp; half-life projection</p>
+      <h1>Pin Tracker</h1>
+      <p class="subtitle">Peptide dosing log, half-life projections &amp; weight tracking</p>
       <span id="storage-badge" class="storage-badge">&nbsp;</span>
     </div>
     <button id="theme-toggle" class="btn btn-ghost" type="button" aria-label="Toggle dark mode">
@@ -34,8 +34,7 @@
         <span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span>
       </div>
       <div id="calendar-grid" class="calendar-grid"></div>
-      <div class="calendar-legend">
-        <span class="legend-dot"></span> Pinned day
+      <div id="calendar-legend" class="calendar-legend">
         <span class="legend-today">Today</span>
       </div>
     </section>
@@ -44,6 +43,10 @@
       <h2 id="form-heading">Log a pin</h2>
       <form id="entry-form" class="entry-form">
         <input type="hidden" id="entry-id" />
+        <label class="field">
+          <span>Compound</span>
+          <select id="entry-compound" required></select>
+        </label>
         <label class="field">
           <span>Date</span>
           <input type="date" id="entry-date" required />
@@ -61,37 +64,124 @@
           <button type="button" id="entry-cancel" class="btn btn-ghost hidden">Cancel</button>
         </div>
       </form>
+    </section>
 
-      <div class="stat-tile">
-        <span class="stat-label">Estimated level today</span>
-        <span id="stat-value" class="stat-value">0 mg</span>
-        <span id="stat-sub" class="stat-sub">No entries logged yet</span>
-      </div>
+    <section class="card compounds-card" aria-labelledby="compounds-heading">
+      <h2 id="compounds-heading">Compounds</h2>
+      <p class="card-hint">Half-lives are approximate — edit any of these to match your source.</p>
+      <div id="compounds-list" class="compounds-list"></div>
+
+      <form id="compound-form" class="compound-form">
+        <input type="hidden" id="compound-id" />
+        <div class="field-row">
+          <label class="field">
+            <span>Name</span>
+            <input type="text" id="compound-name" placeholder="e.g. Semaglutide" maxlength="60" required />
+          </label>
+          <label class="field field-narrow">
+            <span>Half-life (days)</span>
+            <input type="number" id="compound-halflife" min="0.1" step="0.1" placeholder="e.g. 6" required />
+          </label>
+        </div>
+        <div class="form-actions">
+          <button type="submit" id="compound-submit" class="btn btn-primary">Add compound</button>
+          <button type="button" id="compound-cancel" class="btn btn-ghost hidden">Cancel</button>
+        </div>
+      </form>
     </section>
 
     <section class="card chart-card" aria-labelledby="chart-heading">
       <div class="chart-header">
         <div>
           <h2 id="chart-heading">Amount in system</h2>
-          <p class="chart-subtitle">Modeled with a <span id="halflife-label">6</span>-day half-life · dashed = projected, assuming no further pins</p>
+          <p class="chart-subtitle" id="chart-subtitle">Dashed = projected, assuming no further pins</p>
         </div>
-        <div class="range-controls" role="group" aria-label="Date range">
-          <button class="btn btn-pill" data-range="30" type="button">30D</button>
-          <button class="btn btn-pill" data-range="90" type="button">90D</button>
-          <button class="btn btn-pill is-active" data-range="all" type="button">All</button>
+        <div class="chart-header-controls">
+          <select id="chart-compound-select" class="compound-select" aria-label="Compound to chart"></select>
+          <div class="range-controls" role="group" aria-label="Date range">
+            <button class="btn btn-pill" data-range="30" type="button">30D</button>
+            <button class="btn btn-pill" data-range="90" type="button">90D</button>
+            <button class="btn btn-pill is-active" data-range="all" type="button">All</button>
+          </div>
         </div>
       </div>
+
+      <div class="stat-tile">
+        <span class="stat-label" id="stat-label">Estimated level today</span>
+        <span id="stat-value" class="stat-value">0 mg</span>
+        <span id="stat-sub" class="stat-sub">No entries logged yet</span>
+      </div>
+
       <div id="chart-container" class="chart-container">
-        <p id="chart-empty" class="empty-state">Log a pin to see your projected level here.</p>
+        <p id="chart-empty" class="empty-state">Log a pin for this compound to see your projected level here.</p>
         <svg id="chart-svg" class="chart-svg" xmlns="http://www.w3.org/2000/svg"></svg>
         <div id="chart-tooltip" class="chart-tooltip hidden"></div>
       </div>
     </section>
 
     <section class="card entries-card" aria-labelledby="entries-heading">
-      <h2 id="entries-heading">History</h2>
+      <h2 id="entries-heading">Pin history</h2>
       <div id="entries-list" class="entries-list">
         <p id="entries-empty" class="empty-state">No pins logged yet.</p>
+      </div>
+    </section>
+
+    <section class="card weight-card" aria-labelledby="weight-heading">
+      <div class="chart-header">
+        <div>
+          <h2 id="weight-heading">Weight</h2>
+          <p class="chart-subtitle">Logged measurements over time</p>
+        </div>
+        <div class="range-controls" role="group" aria-label="Weight date range">
+          <button class="btn btn-pill" data-weight-range="30" type="button">30D</button>
+          <button class="btn btn-pill" data-weight-range="90" type="button">90D</button>
+          <button class="btn btn-pill is-active" data-weight-range="all" type="button">All</button>
+        </div>
+      </div>
+
+      <form id="weight-form" class="entry-form weight-form">
+        <input type="hidden" id="weight-id" />
+        <label class="field">
+          <span>Date</span>
+          <input type="date" id="weight-date" required />
+        </label>
+        <div class="field-row">
+          <label class="field field-narrow">
+            <span>Weight</span>
+            <input type="number" id="weight-value" min="0" step="0.1" placeholder="e.g. 180" required />
+          </label>
+          <label class="field field-narrow">
+            <span>Unit</span>
+            <select id="weight-unit">
+              <option value="lb">lb</option>
+              <option value="kg">kg</option>
+            </select>
+          </label>
+        </div>
+        <label class="field">
+          <span>Note <span class="optional">(optional)</span></span>
+          <input type="text" id="weight-note" placeholder="e.g. after workout" maxlength="120" />
+        </label>
+        <div class="form-actions">
+          <button type="submit" id="weight-submit" class="btn btn-primary">Add weigh-in</button>
+          <button type="button" id="weight-cancel" class="btn btn-ghost hidden">Cancel</button>
+        </div>
+      </form>
+
+      <div class="stat-tile">
+        <span class="stat-label">Latest weight</span>
+        <span id="weight-stat-value" class="stat-value">—</span>
+        <span id="weight-stat-sub" class="stat-sub">No weigh-ins logged yet</span>
+      </div>
+
+      <div id="weight-chart-container" class="chart-container">
+        <p id="weight-chart-empty" class="empty-state">Log a weigh-in to see your trend here.</p>
+        <svg id="weight-chart-svg" class="chart-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+        <div id="weight-chart-tooltip" class="chart-tooltip hidden"></div>
+      </div>
+
+      <div id="weight-list" class="entries-list">
+        <p id="weight-empty" class="empty-state">No weigh-ins logged yet.</p>
       </div>
     </section>
 

@@ -1,21 +1,28 @@
-# Reta Tracker
+# Pin Tracker
 
-A small, self-contained web app for logging Retatrutide ("Reta") pins and
-seeing how much is estimated to still be in your system over time.
+A small, self-contained web app for logging peptide pins across multiple
+compounds and tracking body weight over time.
 
-- **Calendar** — days you logged a pin are marked with a dot; click any day
-  to log or jump to it.
-- **Log a pin** — enter the date, dose (mg), and an optional note. Click an
-  entry in the History list to edit it.
-- **Amount in system** — a chart of estimated level over time, modeled as
-  exponential decay with a 6-day half-life. Each pin adds its dose on top of
-  whatever is still decaying from previous pins. The solid line is computed
-  from your logged pins; the dashed line projects forward assuming no
-  further pins.
+- **Compounds** — track any number of peptides, each with its own editable
+  half-life (comes seeded with Retatrutide, Tirzepatide, Semaglutide, and
+  Cagrilintide as a starting point — half-lives are approximate, edit them
+  to match your source). Add, rename, or delete your own.
+- **Calendar** — days you logged a pin are marked with a color-coded dot per
+  compound; click any day to log or jump to it.
+- **Log a pin** — pick the compound, date, dose (mg), and an optional note.
+  Click an entry in the Pin history list to edit it.
+- **Amount in system** — pick a compound from the dropdown to see a chart of
+  its estimated level over time, modeled as exponential decay from that
+  compound's half-life. Each pin adds its dose on top of whatever is still
+  decaying from previous pins of the same compound. The solid line is
+  computed from your logged pins; the dashed line projects forward assuming
+  no further pins of that compound.
+- **Weight** — a separate log of body-weight measurements (lb or kg) with
+  its own trend chart and latest-vs-previous delta.
 
-The page auto-detects storage: if `server.js` (below) is running, entries are
-shared across every device that opens the page; otherwise it falls back to
-this browser's `localStorage`, same as a plain static host (e.g. GitHub
+The page auto-detects storage: if `server.js` (below) is running, everything
+is shared across every device that opens the page; otherwise it falls back
+to this browser's `localStorage`, same as a plain static host (e.g. GitHub
 Pages). A small badge under the title says which mode is active.
 
 ## Running it
@@ -37,8 +44,9 @@ node server.js
 ```
 
 Serves the app and a JSON-file-backed API on port 3000 (override with
-`PORT=...`; data defaults to `./data/entries.json`, override the directory
-with `DATA_DIR=...`). No dependencies to install — just Node.js.
+`PORT=...`; data defaults to `./data/` — `compounds.json`, `entries.json`,
+`weight.json` — override the directory with `DATA_DIR=...`). No dependencies
+to install — just Node.js.
 
 ### Self-hosting on a home server (e.g. a Proxmox LXC)
 
@@ -63,6 +71,7 @@ D * 0.5 ^ ((t - t0) / halfLife)
 ```
 
 The total estimated level at any moment is the sum of that formula over
-every logged dose whose time has passed. The half-life is fixed at 6 days
-(`HALF_LIFE_DAYS` in `app.js`) — change it there if you want to model a
-different compound or half-life.
+every logged dose of that compound whose time has passed, using that
+compound's own half-life (edit it any time in the Compounds card — the
+chart and stat recompute immediately). Weight isn't modeled this way; it's
+just the measurements you log, plotted as-is.
