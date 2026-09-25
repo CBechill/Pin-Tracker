@@ -22,6 +22,8 @@ const MIME_TYPES = {
   ".css": "text/css; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".webmanifest": "application/manifest+json; charset=utf-8",
+  ".png": "image/png",
 };
 
 const DEFAULT_COMPOUNDS = [
@@ -149,6 +151,13 @@ const STATIC_FILES = {
   "/index.html": "index.html",
   "/style.css": "style.css",
   "/app.js": "app.js",
+  "/sw.js": "sw.js",
+  "/manifest.webmanifest": "manifest.webmanifest",
+  "/icons/icon-192.png": "icons/icon-192.png",
+  "/icons/icon-512.png": "icons/icon-512.png",
+  "/icons/apple-touch-icon.png": "icons/apple-touch-icon.png",
+  "/apple-touch-icon.png": "icons/apple-touch-icon.png",
+  "/favicon.ico": "icons/icon-192.png",
 };
 
 function serveStatic(req, res, pathname) {
@@ -165,7 +174,11 @@ function serveStatic(req, res, pathname) {
       res.end("Not found");
       return;
     }
-    res.writeHead(200, { "Content-Type": MIME_TYPES[path.extname(fullPath)] || "application/octet-stream" });
+    res.writeHead(200, {
+      "Content-Type": MIME_TYPES[path.extname(fullPath)] || "application/octet-stream",
+      // Revalidate every load so a `git pull` + restart reaches phones immediately.
+      "Cache-Control": "no-cache",
+    });
     res.end(data);
   });
 }

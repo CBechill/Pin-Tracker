@@ -1,0 +1,16 @@
+{
+  "name": "pin-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Peptide dosing log, half-life projections, weight tracking, and a Telegram assistant",
+  "scripts": {
+    "start": "node server.js",
+    "bot": "node bot.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0"
+  }
+}

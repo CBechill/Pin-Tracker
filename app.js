@@ -1204,5 +1204,11 @@
 
     updateStorageBadge();
     renderAll();
+
+    // Service workers only run in secure contexts (HTTPS or localhost), so on a
+    // plain-http LAN address this is skipped and the app simply works online-only.
+    if ("serviceWorker" in navigator && window.isSecureContext) {
+      navigator.serviceWorker.register("sw.js").catch(() => {});
+    }
   });
 })();

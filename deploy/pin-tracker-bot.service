@@ -1,0 +1,23 @@
+[Unit]
+Description=Pin Tracker Telegram assistant
+After=network-online.target pin-tracker.service
+Wants=network-online.target pin-tracker.service
+
+[Service]
+Type=simple
+User=pintracker
+WorkingDirectory=/opt/pin-tracker
+# Secrets live here, readable only by root; systemd reads it before dropping to User=.
+EnvironmentFile=/etc/pin-tracker/bot.env
+Environment=DATA_DIR=/var/lib/pin-tracker
+StateDirectory=pin-tracker
+ExecStart=/usr/bin/node /opt/pin-tracker/bot.mjs
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+
+[Install]
+WantedBy=multi-user.target

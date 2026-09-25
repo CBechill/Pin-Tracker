@@ -1,5 +1,5 @@
 [Unit]
-Description=Reta Tracker
+Description=Pin Tracker web app
 After=network.target
 
 [Service]
@@ -7,16 +7,18 @@ Type=simple
 User=pintracker
 WorkingDirectory=/opt/pin-tracker
 Environment=PORT=3000
-Environment=DATA_DIR=/opt/pin-tracker/data
+Environment=DATA_DIR=/var/lib/pin-tracker
+# systemd creates /var/lib/pin-tracker owned by User= and keeps it writable
+# under ProtectSystem=strict - no manual mkdir/chown needed.
+StateDirectory=pin-tracker
 ExecStart=/usr/bin/node /opt/pin-tracker/server.js
 Restart=on-failure
 RestartSec=2
 
-# Basic hardening - this only serves your local LAN, but no reason to run wide open.
+# Basic hardening - this only serves your local network, but no reason to run wide open.
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/opt/pin-tracker/data
 
 [Install]
 WantedBy=multi-user.target

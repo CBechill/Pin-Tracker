@@ -95,7 +95,12 @@ body {
 .app {
   max-width: 1080px;
   margin: 0 auto;
-  padding: 24px 20px 64px;
+  /* safe-area insets keep content clear of the notch/home bar when launched from the home screen */
+  padding:
+    max(24px, env(safe-area-inset-top))
+    max(20px, env(safe-area-inset-right))
+    max(64px, env(safe-area-inset-bottom))
+    max(20px, env(safe-area-inset-left));
 }
 
 .app-header {
