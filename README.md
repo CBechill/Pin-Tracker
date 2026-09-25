@@ -22,8 +22,9 @@ ask questions, and get a daily look-ahead.
   It gets its own icon and opens full-screen. Over HTTPS (see Tailscale
   below) it also works offline with your last-loaded data.
 - **Telegram assistant** (`bot.mjs`) — text it "pinned 2.5 reta left thigh",
-  "weighed 181.4", "how much tirz is in my system?", or "undo that". Every
-  morning it sends a look-ahead: levels, which pins are due, weight trend.
+  "weighed 181.4", "how much tirz is in my system?", "what's due this
+  week?", or "undo that". Every morning it sends a look-ahead: levels, which
+  pins are due, weight trend, and (if connected) Canvas assignments due.
 
 The page auto-detects storage: if `server.js` is running, everything is
 shared across every device that opens the page; otherwise it falls back to
@@ -97,6 +98,10 @@ updates are a plain `git pull`.
    `/etc/pin-tracker/bot.env`, then `systemctl restart pin-tracker-bot`.
    From now on it answers only you; anyone else who finds it is ignored.
 6. Send `/help` to see what it can do, or `/summary` for today's look-ahead.
+7. **Optional - school assignments:** in Canvas go to Calendar →
+   **Calendar Feed** (bottom right), copy the link, and put it in
+   `CANVAS_ICS_URL` in `/etc/pin-tracker/bot.env`, then restart the bot.
+   The feed is read-only and shows due dates, not whether you've submitted.
 
 The bot only makes outbound connections (to Telegram and Claude), so it
 needs no open ports. Your messages and tracker data are sent to Telegram and

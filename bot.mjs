@@ -25,6 +25,8 @@ const LOOKAHEAD_HOUR = Number(process.env.LOOKAHEAD_HOUR || 8);
 const MODEL = process.env.BOT_CLAUDE_MODEL || "claude-opus-5";
 const EFFORT = process.env.BOT_CLAUDE_EFFORT || "medium";
 const DATA_DIR = process.env.DATA_DIR || path.join(here, "data");
+// Canvas "Calendar Feed" URL. Treat as a secret: never log it.
+const CANVAS_ICS_URL = process.env.CANVAS_ICS_URL || "";
 const STATE_FILE = path.join(DATA_DIR, "bot-state.json");
 
 const SESSION_IDLE_MS = 2 * 60 * 60 * 1000; // new conversation after 2h of quiet
@@ -219,6 +221,98 @@ const TOOLS = [
   },
 ];
 
+if (CANVAS_ICS_URL) {
+  TOOLS.push({
+    name: "get_school_items",
+    description: "School items from the user's Canvas (GRCC) calendar: assignment due dates and course events, from today onward, soonest first. The feed does not know whether something was already submitted.",
+    input_schema: {
+      type: "object",
+      properties: { days: { type: "integer", description: "How many days ahead to include. Default 7, max 60." } },
+    },
+  });
+}
+
+// ---------- Canvas calendar feed (iCalendar) ----------
+
+const CANVAS_CACHE_MS = 15 * 60 * 1000;
+let canvasCache = { at: 0, items: null };
+
+function parseIcsEvents(text) {
+  const unfolded = [];
+  for (const line of text.replace(/\r\n?/g, "\n").split("\n")) {
+    if ((line.startsWith(" ") || line.startsWith("\t")) && unfolded.length) unfolded[unfolded.length - 1] += line.slice(1);
+    else unfolded.push(line);
+  }
+  const events = [];
+  let cur = null;
+  for (const line of unfolded) {
+    if (line === "BEGIN:VEVENT") { cur = {}; continue; }
+    if (line === "END:VEVENT") { if (cur) events.push(cur); cur = null; continue; }
+    if (!cur) continue;
+    const colon = line.indexOf(":");
+    if (colon < 0) continue;
+    const [name, ...params] = line.slice(0, colon).split(";");
+    cur[name.toUpperCase()] = { value: line.slice(colon + 1), params: params.join(";").toUpperCase() };
+  }
+  return events;
+}
+
+const icsText = (v) => (v || "").replace(/\\n/gi, "\n").replace(/\\([,;\\])/g, "$1").trim();
+
+// UTC ms for a wall-clock time in TIME_ZONE (two passes to land on the right side of DST shifts).
+function zonedToUtc(y, mo, d, h, mi, s) {
+  const guess = Date.UTC(y, mo - 1, d, h, mi, s);
+  const offsetAt = (ms) => {
+    const f = new Intl.DateTimeFormat("en-US", { timeZone: TIME_ZONE, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const p = Object.fromEntries(f.formatToParts(new Date(ms)).map((x) => [x.type, Number(x.value)]));
+    return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - ms;
+  };
+  let ms = guess - offsetAt(guess);
+  ms = guess - offsetAt(ms);
+  return ms;
+}
+
+function parseIcsDate(prop) {
+  if (!prop) return null;
+  const v = prop.value.trim();
+  const m = v.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?$/);
+  if (!m) return null;
+  const [, y, mo, d, h, mi, s, z] = m;
+  if (h === undefined || prop.params.includes("VALUE=DATE")) {
+    return { allDay: true, date: `${y}-${mo}-${d}`, ms: zonedToUtc(+y, +mo, +d, 23, 59, 59) };
+  }
+  // Z = UTC. TZID/floating times are treated as the user's own time zone.
+  const ms = z ? Date.UTC(+y, +mo - 1, +d, +h, +mi, +s) : zonedToUtc(+y, +mo, +d, +h, +mi, +s);
+  return { allDay: false, date: zonedParts(new Date(ms)).date, ms };
+}
+
+async function loadCanvasItems() {
+  if (canvasCache.items && Date.now() - canvasCache.at < CANVAS_CACHE_MS) return { items: canvasCache.items, stale: false };
+  try {
+    const res = await fetch(CANVAS_ICS_URL, { signal: AbortSignal.timeout(15_000) });
+    if (!res.ok) throw new Error(`Canvas feed returned ${res.status}`);
+    const items = parseIcsEvents(await res.text()).map((e) => {
+      const due = parseIcsDate(e.DTSTART);
+      if (!due) return null;
+      const summary = icsText(e.SUMMARY && e.SUMMARY.value);
+      const course = (summary.match(/\[([^\]]+)\]\s*$/) || [])[1] || "";
+      const uid = (e.UID && e.UID.value) || "";
+      return {
+        title: summary.replace(/\s*\[[^\]]+\]\s*$/, "") || "(untitled)",
+        course,
+        kind: /assignment/i.test(uid) ? "assignment" : "event",
+        due,
+      };
+    }).filter(Boolean);
+    canvasCache = { at: Date.now(), items };
+    return { items, stale: false };
+  } catch (err) {
+    console.error("Canvas feed fetch failed:", err.name === "TimeoutError" ? "timeout" : err.message.replace(CANVAS_ICS_URL, "<feed>"));
+    if (canvasCache.items) return { items: canvasCache.items, stale: true };
+    throw new Error("Couldn't reach the Canvas calendar feed right now.");
+  }
+}
+
 function checkDate(date) {
   if (date === undefined || date === null || date === "") return todayStr();
   if (!DATE_RE.test(date)) throw new Error(`Date must be YYYY-MM-DD, got "${date}".`);
@@ -321,6 +415,27 @@ const toolHandlers = {
     const pins = entries.filter((e) => e.compoundId === r.compound.id);
     return { compound: r.compound.name, date, estimated_mg: round2(levelAt(dateToMs(date), pins, r.compound.halfLifeDays)) };
   },
+
+  async get_school_items({ days }) {
+    const span = Number.isInteger(days) && days > 0 ? Math.min(days, 60) : 7;
+    const { items, stale } = await loadCanvasItems();
+    const today = todayStr();
+    const todayMs = dateToMs(today);
+    const endMs = todayMs + span * 86400000;
+    const upcoming = items
+      .filter((it) => { const dMs = dateToMs(it.due.date); return dMs >= todayMs && dMs < endMs; })
+      .sort((a, b) => a.due.ms - b.due.ms)
+      .map((it) => ({
+        title: it.title,
+        course: it.course,
+        kind: it.kind,
+        due: it.due.allDay
+          ? `${new Date(dateToMs(it.due.date)).toLocaleDateString("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" })} (all day)`
+          : new Date(it.due.ms).toLocaleString("en-US", { timeZone: TIME_ZONE, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
+        days_until: Math.round((dateToMs(it.due.date) - todayMs) / 86400000),
+      }));
+    return { today, window_days: span, items: upcoming, ...(stale ? { note: "Canvas was unreachable; this is the last copy fetched." } : {}) };
+  },
 };
 
 async function runTool(block) {
@@ -351,7 +466,9 @@ How to work:
 
 Style: this is texting. Keep replies short and scannable, in plain text - no markdown headers, tables, or bold. Short lines and simple dashes are fine. Latency-sensitive; begin your visible answer immediately.
 
-Daily look-ahead: when a message says it is the automated morning check-in, call get_status and write a brief look-ahead for today: for each compound they actually pin, the estimated amount in system now and whether a pin is due today, overdue, or when the next one is expected (from their usual interval); then their latest weight and the recent trend. Calendar access is not connected yet, so don't mention a schedule. Keep it to a handful of lines.`;
+Daily look-ahead: when a message says it is the automated morning check-in, call get_status and write a brief look-ahead for today: for each compound they actually pin, the estimated amount in system now and whether a pin is due today, overdue, or when the next one is expected (from their usual interval); then their latest weight and the recent trend. Calendar access is not connected yet, so don't mention a schedule. Keep it to a handful of lines.${CANVAS_ICS_URL ? `
+
+School: they're a student at GRCC, and get_school_items reads their Canvas calendar (assignment due dates and course events). Use it for "what's due" questions. In the morning look-ahead, also call it and add a short school section: anything due today (with the time), then what's due in the next few days. The feed can't tell whether something was already turned in, so don't say anything is missing or overdue.` : ""}`;
 
 let history = [];
 let lastActivity = 0;
