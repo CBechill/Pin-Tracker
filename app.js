@@ -20,8 +20,7 @@
     { id: "tirzepatide", name: "Tirzepatide", halfLifeDays: 5 },
     { id: "semaglutide", name: "Semaglutide", halfLifeDays: 7 },
     { id: "cagrilintide", name: "Cagrilintide", halfLifeDays: 8 },
-    { id: "semax", name: "Semax", route: "nasal" },
-    { id: "selank", name: "Selank", route: "nasal" },
+    { id: "semax-selank", name: "Semax + Selank", route: "nasal" },
   ];
 
   // ---------- date helpers (all day math done in UTC ms to avoid DST drift) ----------

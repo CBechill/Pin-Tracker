@@ -8,7 +8,8 @@ look-ahead.
 - **Compounds** — track any number of peptides. Injectables each have an
   editable half-life (seeded with Retatrutide, Tirzepatide, Semaglutide, and
   Cagrilintide — half-lives are approximate, edit them to match your
-  source). Nasal sprays (seeded with Semax and Selank) take an optional mcg
+  source). Nasal sprays (seeded with a mixed "Semax + Selank" spray, logged as
+  one entry) take an optional mcg
   per spray from your bottle's label. Add, rename, or delete your own.
 - **Calendar** — days you logged a dose are marked with a color-coded dot per
   compound; click any day to log or jump to it.
