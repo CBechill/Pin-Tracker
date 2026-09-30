@@ -370,6 +370,7 @@ body {
 .end-label { fill: var(--text-primary); font-size: 12px; font-weight: 600; }
 .hover-line { stroke: var(--baseline); stroke-width: 1; }
 .hover-dot { fill: var(--accent, var(--series-1)); stroke: var(--surface-1); stroke-width: 2; }
+.usage-bar { fill: var(--accent, var(--series-1)); }
 
 /* Entries list */
 .entries-list { display: flex; flex-direction: column; }

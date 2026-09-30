@@ -136,42 +136,62 @@ function median(nums) {
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 }
 
+// Nasal sprays are tracked by use in mcg (they clear in minutes); doses are stored in mg.
+const isNasal = (c) => !!c && c.route === "nasal";
+const toMcg = (mg) => Math.round(mg * 1000 * 10) / 10;
+
+function describeDose(e, compound) {
+  const out = { id: e.id, compound: compound ? compound.name : "Unknown", date: e.date };
+  if (isNasal(compound)) {
+    out.route = "nasal";
+    out.dose_mcg = toMcg(e.dose);
+    if (e.sprays) out.sprays = e.sprays;
+  } else {
+    out.route = "injection";
+    out.dose_mg = e.dose;
+  }
+  out.note = e.note || "";
+  return out;
+}
+
 // ---------- tools ----------
 
 const TOOLS = [
   {
     name: "get_status",
-    description: "Snapshot of everything tracked: every compound with its half-life, estimated amount in system today, last pin, usual pin interval and next expected pin date; plus latest weigh-ins. Call this first for summaries, look-aheads, or 'how am I doing' questions.",
+    description: "Snapshot of everything tracked. Injectable compounds: half-life, estimated amount in system today, last pin, usual pin interval and next expected pin date. Nasal-spray compounds: mcg used today, doses today, days used in the last week, last dose. Plus latest weigh-ins. Call this first for summaries, look-aheads, or 'how am I doing' questions.",
     input_schema: { type: "object", properties: {} },
   },
   {
-    name: "list_pins",
-    description: "List logged pins (injections), newest first, with their ids. Use to answer history questions or to find an entry id before deleting it.",
+    name: "list_doses",
+    description: "List logged doses (injection pins and nasal sprays), newest first, with their ids. Use to answer history questions or to find an entry id before deleting it.",
     input_schema: {
       type: "object",
       properties: {
-        compound: { type: "string", description: "Optional compound name or partial name to filter by, e.g. 'reta'." },
+        compound: { type: "string", description: "Optional compound name or partial name to filter by, e.g. 'reta', 'semax'." },
         days: { type: "integer", description: "How many days back to include. Default 30." },
       },
     },
   },
   {
-    name: "log_pin",
-    description: "Record a pin (injection). Returns the saved entry including its id.",
+    name: "log_dose",
+    description: "Record a dose: an injection pin or a nasal spray. Give the amount as dose_mg or dose_mcg (whichever unit the user said - don't convert), and for nasal sprays you may give sprays instead of an amount if the compound has mcg-per-spray set. Returns the saved entry including its id.",
     input_schema: {
       type: "object",
       properties: {
-        compound: { type: "string", description: "Compound name or partial name, e.g. 'reta', 'tirzepatide'." },
-        dose_mg: { type: "number", description: "Dose in milligrams. Convert mcg to mg (1000 mcg = 1 mg) before calling." },
+        compound: { type: "string", description: "Compound name or partial name, e.g. 'reta', 'tirzepatide', 'semax'." },
+        dose_mg: { type: "number", description: "Amount in milligrams." },
+        dose_mcg: { type: "number", description: "Amount in micrograms (typical for nasal sprays)." },
+        sprays: { type: "integer", description: "Nasal sprays only: number of sprays." },
         date: { type: "string", description: "YYYY-MM-DD. Omit for today. Resolve words like 'yesterday' against the timestamp on the user's message." },
         note: { type: "string", description: "Optional note, e.g. injection site." },
       },
-      required: ["compound", "dose_mg"],
+      required: ["compound"],
     },
   },
   {
-    name: "delete_pin",
-    description: "Delete a pin by id (from log_pin or list_pins). Use for 'undo' or corrections.",
+    name: "delete_dose",
+    description: "Delete a dose by id (from log_dose or list_doses). Use for 'undo' or corrections.",
     input_schema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
   },
   {
@@ -205,14 +225,16 @@ const TOOLS = [
       type: "object",
       properties: {
         name: { type: "string" },
-        half_life_days: { type: "number", description: "Half-life in days (hours / 24)." },
+        route: { type: "string", enum: ["injection", "nasal"], description: "Default injection." },
+        half_life_days: { type: "number", description: "Injections only (required for them): half-life in days (hours / 24)." },
+        mcg_per_spray: { type: "number", description: "Nasal sprays only, optional: mcg delivered per spray." },
       },
-      required: ["name", "half_life_days"],
+      required: ["name"],
     },
   },
   {
     name: "project_level",
-    description: "Estimate how much of a compound will be (or was) in the system on a given date, from the logged pins only (assumes no additional pins).",
+    description: "Estimate how much of an injectable compound will be (or was) in the system on a given date, from the logged pins only (assumes no additional pins). Not available for nasal sprays.",
     input_schema: {
       type: "object",
       properties: { compound: { type: "string" }, date: { type: "string", description: "YYYY-MM-DD" } },
@@ -327,15 +349,29 @@ const toolHandlers = {
     const today = todayStr();
     const todayMs = dateToMs(today);
     const compoundStatus = compounds.map((c) => {
-      const pins = entries.filter((e) => e.compoundId === c.id).sort((a, b) => a.date.localeCompare(b.date));
-      const out = { name: c.name, half_life_days: c.halfLifeDays, pin_count: pins.length };
-      if (pins.length === 0) return out;
-      const last = pins[pins.length - 1];
-      out.estimated_mg_in_system_today = round2(levelAt(todayMs, pins, c.halfLifeDays));
+      const doses = entries.filter((e) => e.compoundId === c.id).sort((a, b) => a.date.localeCompare(b.date));
+
+      if (isNasal(c)) {
+        const out = { name: c.name, route: "nasal", dose_count: doses.length };
+        if (c.mcgPerSpray) out.mcg_per_spray = c.mcgPerSpray;
+        if (doses.length === 0) return out;
+        const todays = doses.filter((d) => d.date === today);
+        out.mcg_today = toMcg(todays.reduce((s, d) => s + d.dose, 0));
+        out.doses_today = todays.length;
+        out.days_used_last_7 = new Set(doses.filter((d) => dateToMs(d.date) > todayMs - 7 * 86400000 && dateToMs(d.date) <= todayMs).map((d) => d.date)).size;
+        const last = doses[doses.length - 1];
+        out.last_dose = { date: last.date, mcg: toMcg(last.dose), ...(last.sprays ? { sprays: last.sprays } : {}) };
+        return out;
+      }
+
+      const out = { name: c.name, route: "injection", half_life_days: c.halfLifeDays, pin_count: doses.length };
+      if (doses.length === 0) return out;
+      const last = doses[doses.length - 1];
+      out.estimated_mg_in_system_today = round2(levelAt(todayMs, doses, c.halfLifeDays));
       out.last_pin = { date: last.date, dose_mg: last.dose, days_ago: Math.round((todayMs - dateToMs(last.date)) / 86400000) };
       const gaps = [];
-      for (let i = Math.max(1, pins.length - 5); i < pins.length; i++) {
-        const d = (dateToMs(pins[i].date) - dateToMs(pins[i - 1].date)) / 86400000;
+      for (let i = Math.max(1, doses.length - 5); i < doses.length; i++) {
+        const d = (dateToMs(doses[i].date) - dateToMs(doses[i - 1].date)) / 86400000;
         if (d > 0) gaps.push(d);
       }
       if (gaps.length) {
@@ -353,7 +389,7 @@ const toolHandlers = {
     };
   },
 
-  async list_pins({ compound, days }) {
+  async list_doses({ compound, days }) {
     const [compounds, entries] = await Promise.all([tracker("GET", "/api/compounds"), tracker("GET", "/api/entries")]);
     let filterId = null;
     if (compound) {
@@ -362,23 +398,34 @@ const toolHandlers = {
       filterId = r.compound.id;
     }
     const since = dateToMs(todayStr()) - (Number.isInteger(days) && days > 0 ? days : 30) * 86400000;
-    const nameOf = (id) => (compounds.find((c) => c.id === id) || {}).name || "Unknown";
     return entries
       .filter((e) => (!filterId || e.compoundId === filterId) && dateToMs(e.date) >= since)
       .sort((a, b) => b.date.localeCompare(a.date))
-      .map((e) => ({ id: e.id, compound: nameOf(e.compoundId), date: e.date, dose_mg: e.dose, note: e.note || "" }));
+      .map((e) => describeDose(e, compounds.find((c) => c.id === e.compoundId)));
   },
 
-  async log_pin({ compound, dose_mg, date, note }) {
-    if (typeof dose_mg !== "number" || !Number.isFinite(dose_mg) || dose_mg < 0) throw new Error("dose_mg must be a non-negative number.");
+  async log_dose({ compound, dose_mg, dose_mcg, sprays, date, note }) {
     const compounds = await tracker("GET", "/api/compounds");
     const r = resolveCompound(compounds, compound);
     if (r.error) throw new Error(r.error);
-    const saved = await tracker("POST", "/api/entries", { compoundId: r.compound.id, date: checkDate(date), dose: dose_mg, note: note || "" });
-    return { saved: { id: saved.id, compound: r.compound.name, date: saved.date, dose_mg: saved.dose, note: saved.note } };
+    const c = r.compound;
+    const num = (v) => typeof v === "number" && Number.isFinite(v) && v >= 0;
+    if (sprays != null && !(Number.isInteger(sprays) && sprays > 0)) throw new Error("sprays must be a positive whole number.");
+
+    let doseMg;
+    if (num(dose_mg)) doseMg = dose_mg;
+    else if (num(dose_mcg)) doseMg = dose_mcg / 1000;
+    else if (sprays && isNasal(c) && c.mcgPerSpray) doseMg = (sprays * c.mcgPerSpray) / 1000;
+    else if (sprays && isNasal(c)) throw new Error(`${c.name} has no mcg-per-spray set, so sprays can't be converted. Ask the user for the amount in mcg, or have them set mcg per spray in the app's Compounds card.`);
+    else throw new Error("Give the amount as dose_mg or dose_mcg.");
+
+    const body = { compoundId: c.id, date: checkDate(date), dose: doseMg, note: note || "" };
+    if (isNasal(c) && sprays) body.sprays = sprays;
+    const saved = await tracker("POST", "/api/entries", body);
+    return { saved: describeDose(saved, c) };
   },
 
-  async delete_pin({ id }) {
+  async delete_dose({ id }) {
     await tracker("DELETE", `/api/entries/${encodeURIComponent(id)}`);
     return { deleted: id };
   },
@@ -402,9 +449,17 @@ const toolHandlers = {
     return { deleted: id };
   },
 
-  async add_compound({ name, half_life_days }) {
-    if (typeof half_life_days !== "number" || !(half_life_days > 0)) throw new Error("half_life_days must be a positive number.");
-    return { saved: await tracker("POST", "/api/compounds", { name: String(name || "").trim(), halfLifeDays: half_life_days }) };
+  async add_compound({ name, route, half_life_days, mcg_per_spray }) {
+    const r = route === "nasal" ? "nasal" : "injection";
+    const body = { name: String(name || "").trim(), route: r };
+    if (r === "injection") {
+      if (typeof half_life_days !== "number" || !(half_life_days > 0)) throw new Error("Injectable compounds need half_life_days (a positive number).");
+      body.halfLifeDays = half_life_days;
+    } else if (mcg_per_spray != null) {
+      if (typeof mcg_per_spray !== "number" || !(mcg_per_spray > 0)) throw new Error("mcg_per_spray must be a positive number.");
+      body.mcgPerSpray = mcg_per_spray;
+    }
+    return { saved: await tracker("POST", "/api/compounds", body) };
   },
 
   async project_level({ compound, date }) {
@@ -412,6 +467,7 @@ const toolHandlers = {
     const [compounds, entries] = await Promise.all([tracker("GET", "/api/compounds"), tracker("GET", "/api/entries")]);
     const r = resolveCompound(compounds, compound);
     if (r.error) throw new Error(r.error);
+    if (isNasal(r.compound)) throw new Error(`${r.compound.name} is a nasal spray - it clears within hours, so it isn't modeled as a level. Use list_doses for its usage instead.`);
     const pins = entries.filter((e) => e.compoundId === r.compound.id);
     return { compound: r.compound.name, date, estimated_mg: round2(levelAt(dateToMs(date), pins, r.compound.halfLifeDays)) };
   },
@@ -452,21 +508,21 @@ async function runTool(block) {
 
 // ---------- Claude conversation ----------
 
-const SYSTEM_PROMPT = `You are the user's personal assistant, reached by texting over Telegram. Right now your job is their health tracker: peptide injections ("pins") across several compounds, each with its own half-life, plus body-weight weigh-ins. Everything you record shows up in their Pin Tracker web app.
+const SYSTEM_PROMPT = `You are the user's personal assistant, reached by texting over Telegram. Right now your job is their health tracker: peptide doses across several compounds - injections ("pins"), each with its own half-life, and nasal sprays such as Semax and Selank - plus body-weight weigh-ins. Everything you record shows up in their Pin Tracker web app.
 
 Each user message starts with a timestamp in their local time zone - use it to resolve "today", "yesterday", "last night", weekdays, and so on into YYYY-MM-DD dates.
 
 How to work:
 - Use the tools for every fact about their data. Never guess or invent numbers, dates, or entries.
-- When they report a pin or a weigh-in, log it right away, then confirm in one short line what was saved (compound, dose, date). If something essential is missing or ambiguous (which compound, the dose), ask one short question instead of guessing.
-- Doses are stored in mg. Convert mcg to mg before logging.
+- When they report a dose or a weigh-in, log it right away, then confirm in one short line what was saved (compound, amount, date). If something essential is missing or ambiguous (which compound, the amount), ask one short question instead of guessing.
+- Pass amounts in the unit they used: dose_mg or dose_mcg. For nasal sprays they often give a spray count - pass sprays, and if the compound has no mcg-per-spray set the tool will say so; then ask for the mcg.
 - For "undo" or corrections, delete the wrong entry (and log the right one if needed), then confirm.
-- Amounts "in system" are estimates from a simple half-life decay model of their logged pins, not lab values. Say so briefly if they seem to treat it as exact.
+- Amounts "in system" for injections are estimates from a simple half-life decay model of their logged pins, not lab values. Say so briefly if they seem to treat it as exact. Nasal sprays clear within hours, so for those talk about usage (how much, how often), never an amount in system.
 - You are not their doctor. If they ask whether to change a dose, share the relevant numbers from their data and suggest checking with their prescriber rather than recommending a dose.
 
 Style: this is texting. Keep replies short and scannable, in plain text - no markdown headers, tables, or bold. Short lines and simple dashes are fine. Latency-sensitive; begin your visible answer immediately.
 
-Daily look-ahead: when a message says it is the automated morning check-in, call get_status and write a brief look-ahead for today: for each compound they actually pin, the estimated amount in system now and whether a pin is due today, overdue, or when the next one is expected (from their usual interval); then their latest weight and the recent trend. Calendar access is not connected yet, so don't mention a schedule. Keep it to a handful of lines.${CANVAS_ICS_URL ? `
+Daily look-ahead: when a message says it is the automated morning check-in, call get_status and write a brief look-ahead for today: for each injectable compound they actually pin, the estimated amount in system now and whether a pin is due today, overdue, or when the next one is expected (from their usual interval); for nasal sprays they've used in the last week, one short line on recent use; then their latest weight and the recent trend. Calendar access is not connected yet, so don't mention a schedule. Keep it to a handful of lines.${CANVAS_ICS_URL ? `
 
 School: they're a student at GRCC, and get_school_items reads their Canvas calendar (assignment due dates and course events). Use it for "what's due" questions. In the morning look-ahead, also call it and add a short school section: anything due today (with the time), then what's due in the next few days. The feed can't tell whether something was already turned in, so don't say anything is missing or overdue.` : ""}`;
 
@@ -577,6 +633,7 @@ async function withTyping(chatId, fn) {
 
 const HELP = `Text me like you'd text a person:
 - "pinned 2.5 reta left thigh"
+- "2 sprays semax"
 - "weighed 181.4 this morning"
 - "how much tirz is in my system?"
 - "undo that"

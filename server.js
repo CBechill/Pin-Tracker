@@ -31,6 +31,8 @@ const DEFAULT_COMPOUNDS = [
   { id: "tirzepatide", name: "Tirzepatide", halfLifeDays: 5 },
   { id: "semaglutide", name: "Semaglutide", halfLifeDays: 7 },
   { id: "cagrilintide", name: "Cagrilintide", halfLifeDays: 8 },
+  { id: "semax", name: "Semax", route: "nasal" },
+  { id: "selank", name: "Selank", route: "nasal" },
 ];
 
 // ---------- generic JSON-file resource store ----------
@@ -68,16 +70,26 @@ const writeEntries = (v) => writeJson(entriesFile, v);
 const readWeight = () => readJson(weightFile, []);
 const writeWeight = (v) => writeJson(weightFile, v);
 
+const isPositiveNumber = (v) => typeof v === "number" && Number.isFinite(v) && v > 0;
+
+// Injections need a half-life (it drives the decay chart). Nasal sprays clear in
+// minutes, so they're tracked by daily use instead and take an optional mcg/spray.
 function isValidCompound(body) {
-  return (
-    body &&
-    typeof body.name === "string" &&
-    body.name.trim().length > 0 &&
-    body.name.length <= 60 &&
-    typeof body.halfLifeDays === "number" &&
-    Number.isFinite(body.halfLifeDays) &&
-    body.halfLifeDays > 0
-  );
+  if (!body || typeof body.name !== "string" || !body.name.trim() || body.name.length > 60) return false;
+  const route = body.route === undefined ? "injection" : body.route;
+  if (route !== "injection" && route !== "nasal") return false;
+  if (route === "injection" && !isPositiveNumber(body.halfLifeDays)) return false;
+  if (route === "nasal" && body.halfLifeDays != null && !isPositiveNumber(body.halfLifeDays)) return false;
+  if (body.mcgPerSpray != null && !isPositiveNumber(body.mcgPerSpray)) return false;
+  return true;
+}
+
+function buildCompound(b) {
+  const route = b.route || "injection";
+  const record = { id: crypto.randomUUID(), name: b.name.trim(), route };
+  if (b.halfLifeDays != null) record.halfLifeDays = b.halfLifeDays;
+  if (route === "nasal" && b.mcgPerSpray != null) record.mcgPerSpray = b.mcgPerSpray;
+  return record;
 }
 
 function isValidEntry(body) {
@@ -90,6 +102,7 @@ function isValidEntry(body) {
     typeof body.dose === "number" &&
     Number.isFinite(body.dose) &&
     body.dose >= 0 &&
+    (body.sprays == null || (Number.isInteger(body.sprays) && body.sprays > 0 && body.sprays <= 100)) &&
     (body.note === undefined || typeof body.note === "string")
   );
 }
@@ -254,7 +267,7 @@ const server = http.createServer(async (req, res) => {
         read: readCompounds,
         write: writeCompounds,
         isValid: isValidCompound,
-        buildRecord: (b) => ({ id: crypto.randomUUID(), name: b.name.trim(), halfLifeDays: b.halfLifeDays }),
+        buildRecord: buildCompound,
         onDelete: (id) => {
           const inUse = readEntries().some((e) => e.compoundId === id);
           return inUse ? "Delete or reassign that compound's entries first" : null;
@@ -269,7 +282,11 @@ const server = http.createServer(async (req, res) => {
         read: readEntries,
         write: writeEntries,
         isValid: isValidEntry,
-        buildRecord: (b) => ({ id: crypto.randomUUID(), compoundId: b.compoundId, date: b.date, dose: b.dose, note: b.note || "" }),
+        buildRecord: (b) => ({
+          id: crypto.randomUUID(), compoundId: b.compoundId, date: b.date, dose: b.dose,
+          ...(b.sprays != null ? { sprays: b.sprays } : {}),
+          note: b.note || "",
+        }),
       });
       if (handled) return;
     }

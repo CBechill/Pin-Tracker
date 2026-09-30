@@ -20,6 +20,8 @@
     { id: "tirzepatide", name: "Tirzepatide", halfLifeDays: 5 },
     { id: "semaglutide", name: "Semaglutide", halfLifeDays: 7 },
     { id: "cagrilintide", name: "Cagrilintide", halfLifeDays: 8 },
+    { id: "semax", name: "Semax", route: "nasal" },
+    { id: "selank", name: "Selank", route: "nasal" },
   ];
 
   // ---------- date helpers (all day math done in UTC ms to avoid DST drift) ----------
@@ -180,6 +182,17 @@
     return `cat-${((idx < 0 ? 0 : idx) % CATEGORY_COUNT)}`;
   }
 
+  // Nasal sprays (Semax, Selank...) clear in minutes, so they're tracked by daily
+  // use in mcg rather than a half-life decay curve. Doses are still stored in mg.
+  const isNasal = (c) => !!c && c.route === "nasal";
+  const mgToMcg = (mg) => Math.round(mg * 1000 * 10) / 10;
+
+  function formatDose(entry, compound) {
+    if (!isNasal(compound)) return `${entry.dose} mg`;
+    const sprays = entry.sprays ? ` (${entry.sprays} spray${entry.sprays === 1 ? "" : "s"})` : "";
+    return `${mgToMcg(entry.dose)} mcg${sprays}`;
+  }
+
   function populateCompoundSelect(selectEl, selectedId) {
     selectEl.innerHTML = "";
     if (compounds.length === 0) {
@@ -194,7 +207,7 @@
     for (const c of compounds) {
       const opt = document.createElement("option");
       opt.value = c.id;
-      opt.textContent = `${c.name} (${c.halfLifeDays}d half-life)`;
+      opt.textContent = isNasal(c) ? `${c.name} (nasal spray)` : `${c.name} (${c.halfLifeDays}d half-life)`;
       if (c.id === selectedId) opt.selected = true;
       selectEl.appendChild(opt);
     }
@@ -344,35 +357,69 @@
 
     document.getElementById("entry-form").addEventListener("submit", onSubmit);
     document.getElementById("entry-cancel").addEventListener("click", resetForm);
+    document.getElementById("entry-compound").addEventListener("change", () => updateDoseFields({ clearOnRouteChange: true }));
+    document.getElementById("entry-sprays").addEventListener("input", () => {
+      const compound = getCompound(document.getElementById("entry-compound").value);
+      const sprays = parseInt(document.getElementById("entry-sprays").value, 10);
+      if (isNasal(compound) && compound.mcgPerSpray && sprays > 0) {
+        document.getElementById("entry-dose").value = Math.round(sprays * compound.mcgPerSpray * 10) / 10;
+      }
+    });
+  }
+
+  let doseFieldRoute = "injection";
+
+  // Injections are entered in mg; nasal sprays in mcg with an optional spray count.
+  function updateDoseFields({ clearOnRouteChange = false } = {}) {
+    const compound = getCompound(document.getElementById("entry-compound").value);
+    const route = isNasal(compound) ? "nasal" : "injection";
+    const doseInput = document.getElementById("entry-dose");
+    if (clearOnRouteChange && route !== doseFieldRoute) {
+      doseInput.value = "";
+      document.getElementById("entry-sprays").value = "";
+    }
+    doseFieldRoute = route;
+    const nasal = route === "nasal";
+    document.getElementById("entry-dose-label").textContent = nasal ? "Dose (mcg)" : "Dose (mg)";
+    doseInput.step = nasal ? "any" : "0.05";
+    doseInput.placeholder = nasal ? (compound.mcgPerSpray ? `e.g. ${compound.mcgPerSpray * 2}` : "e.g. 300") : "e.g. 2";
+    document.getElementById("entry-sprays-field").classList.toggle("hidden", !nasal);
+    document.getElementById("entry-note").placeholder = nasal ? "e.g. both nostrils" : "e.g. left thigh";
   }
 
   async function onSubmit(e) {
     e.preventDefault();
     const compoundId = document.getElementById("entry-compound").value;
     const date = document.getElementById("entry-date").value;
-    const dose = parseFloat(document.getElementById("entry-dose").value);
+    const amount = parseFloat(document.getElementById("entry-dose").value);
     const note = document.getElementById("entry-note").value.trim();
+    const nasal = isNasal(getCompound(compoundId));
+    const dose = nasal ? amount / 1000 : amount;
+    const spraysRaw = parseInt(document.getElementById("entry-sprays").value, 10);
+    const sprays = nasal && spraysRaw > 0 ? spraysRaw : null;
 
     if (!compoundId || !date || !Number.isFinite(dose) || dose < 0) return;
+
+    const payload = { compoundId, date, dose, note, ...(sprays ? { sprays } : {}) };
 
     setFormBusy("entry-form", true);
     try {
       if (storageMode === "api") {
         if (editingId) {
-          const updated = await apiUpdate(API.entries, editingId, { compoundId, date, dose, note });
+          const updated = await apiUpdate(API.entries, editingId, payload);
           const idx = entries.findIndex((en) => en.id === editingId);
           if (idx !== -1) entries[idx] = updated;
         } else {
-          entries.push(await apiCreate(API.entries, { compoundId, date, dose, note }));
+          entries.push(await apiCreate(API.entries, payload));
         }
       } else {
         if (editingId) {
-          const entry = entries.find((en) => en.id === editingId);
-          if (entry) Object.assign(entry, { compoundId, date, dose, note });
+          const idx = entries.findIndex((en) => en.id === editingId);
+          if (idx !== -1) entries[idx] = { id: editingId, ...payload };
         } else {
           entries.push({
             id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random())),
-            compoundId, date, dose, note,
+            ...payload,
           });
         }
         saveLocal(LOCAL_KEYS.entries, entries);
@@ -393,6 +440,7 @@
     editingId = null;
     document.getElementById("entry-id").value = "";
     document.getElementById("entry-dose").value = "";
+    document.getElementById("entry-sprays").value = "";
     document.getElementById("entry-note").value = "";
     document.getElementById("entry-date").value = selectedDate;
     document.getElementById("entry-submit").textContent = "Add entry";
@@ -400,16 +448,20 @@
     const select = document.getElementById("entry-compound");
     const keep = select.value || (compounds[0] && compounds[0].id);
     populateCompoundSelect(select, keep);
+    updateDoseFields();
   }
 
   function editEntry(id) {
     const entry = entries.find((en) => en.id === id);
     if (!entry) return;
     editingId = id;
+    const compound = getCompound(entry.compoundId);
     document.getElementById("entry-id").value = id;
     populateCompoundSelect(document.getElementById("entry-compound"), entry.compoundId);
+    updateDoseFields();
     document.getElementById("entry-date").value = entry.date;
-    document.getElementById("entry-dose").value = entry.dose;
+    document.getElementById("entry-dose").value = isNasal(compound) ? mgToMcg(entry.dose) : entry.dose;
+    document.getElementById("entry-sprays").value = entry.sprays || "";
     document.getElementById("entry-note").value = entry.note || "";
     document.getElementById("entry-submit").textContent = "Save changes";
     document.getElementById("entry-cancel").classList.remove("hidden");
@@ -421,7 +473,7 @@
   async function deleteEntry(id) {
     const entry = entries.find((en) => en.id === id);
     if (!entry) return;
-    const label = `${getCompound(entry.compoundId).name} — ${formatDateLabel(entry.date, { year: true })} — ${entry.dose} mg`;
+    const label = `${getCompound(entry.compoundId).name} — ${formatDateLabel(entry.date, { year: true })} — ${formatDose(entry, getCompound(entry.compoundId))}`;
     if (!window.confirm(`Delete this entry?\n${label}`)) return;
 
     try {
@@ -466,7 +518,8 @@
       const metaEl = document.createElement("span");
       metaEl.className = "entry-meta";
       const dateLabel = formatDateLabel(entry.date, { year: true });
-      metaEl.textContent = entry.note ? `${dateLabel} · ${entry.dose} mg · ${entry.note}` : `${dateLabel} · ${entry.dose} mg`;
+      const doseLabel = formatDose(entry, compound);
+      metaEl.textContent = entry.note ? `${dateLabel} · ${doseLabel} · ${entry.note}` : `${dateLabel} · ${doseLabel}`;
       main.appendChild(metaEl);
 
       row.appendChild(main);
@@ -506,7 +559,10 @@
       const meta = document.createElement("span");
       meta.className = "compound-meta";
       const count = entries.filter((e) => e.compoundId === c.id).length;
-      meta.textContent = `${c.halfLifeDays}-day half-life · ${count} entr${count === 1 ? "y" : "ies"}`;
+      const entriesLabel = `${count} entr${count === 1 ? "y" : "ies"}`;
+      meta.textContent = isNasal(c)
+        ? `Nasal spray${c.mcgPerSpray ? ` · ${c.mcgPerSpray} mcg/spray` : " · mcg/spray not set"} · ${entriesLabel}`
+        : `${c.halfLifeDays}-day half-life · ${entriesLabel}`;
       info.append(name, meta);
       row.appendChild(info);
 
@@ -532,30 +588,46 @@
   function initCompoundForm() {
     document.getElementById("compound-form").addEventListener("submit", onCompoundSubmit);
     document.getElementById("compound-cancel").addEventListener("click", resetCompoundForm);
+    document.getElementById("compound-route").addEventListener("change", updateCompoundRouteFields);
+  }
+
+  function updateCompoundRouteFields() {
+    const nasal = document.getElementById("compound-route").value === "nasal";
+    document.getElementById("compound-halflife-field").classList.toggle("hidden", nasal);
+    // A hidden required field would silently block submit, so toggle `required` with visibility.
+    document.getElementById("compound-halflife").required = !nasal;
+    document.getElementById("compound-spray-field").classList.toggle("hidden", !nasal);
   }
 
   async function onCompoundSubmit(e) {
     e.preventDefault();
     const name = document.getElementById("compound-name").value.trim();
+    const route = document.getElementById("compound-route").value === "nasal" ? "nasal" : "injection";
     const halfLifeDays = parseFloat(document.getElementById("compound-halflife").value);
-    if (!name || !Number.isFinite(halfLifeDays) || halfLifeDays <= 0) return;
+    const mcgPerSpray = parseFloat(document.getElementById("compound-mcg-per-spray").value);
+    if (!name) return;
+    if (route === "injection" && (!Number.isFinite(halfLifeDays) || halfLifeDays <= 0)) return;
+
+    const body = route === "nasal"
+      ? { name, route, ...(Number.isFinite(mcgPerSpray) && mcgPerSpray > 0 ? { mcgPerSpray } : {}) }
+      : { name, route, halfLifeDays };
 
     setFormBusy("compound-form", true);
     try {
       if (storageMode === "api") {
         if (editingCompoundId) {
-          const updated = await apiUpdate(API.compounds, editingCompoundId, { name, halfLifeDays });
+          const updated = await apiUpdate(API.compounds, editingCompoundId, body);
           const idx = compounds.findIndex((c) => c.id === editingCompoundId);
           if (idx !== -1) compounds[idx] = updated;
         } else {
-          compounds.push(await apiCreate(API.compounds, { name, halfLifeDays }));
+          compounds.push(await apiCreate(API.compounds, body));
         }
       } else {
         if (editingCompoundId) {
-          const c = compounds.find((c) => c.id === editingCompoundId);
-          if (c) Object.assign(c, { name, halfLifeDays });
+          const idx = compounds.findIndex((c) => c.id === editingCompoundId);
+          if (idx !== -1) compounds[idx] = { id: editingCompoundId, ...body };
         } else {
-          compounds.push({ id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()), name, halfLifeDays });
+          compounds.push({ id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()), ...body });
         }
         saveLocal(LOCAL_KEYS.compounds, compounds);
       }
@@ -575,6 +647,9 @@
     document.getElementById("compound-id").value = "";
     document.getElementById("compound-name").value = "";
     document.getElementById("compound-halflife").value = "";
+    document.getElementById("compound-mcg-per-spray").value = "";
+    document.getElementById("compound-route").value = "injection";
+    updateCompoundRouteFields();
     document.getElementById("compound-submit").textContent = "Add compound";
     document.getElementById("compound-cancel").classList.add("hidden");
   }
@@ -585,7 +660,10 @@
     editingCompoundId = id;
     document.getElementById("compound-id").value = id;
     document.getElementById("compound-name").value = c.name;
-    document.getElementById("compound-halflife").value = c.halfLifeDays;
+    document.getElementById("compound-route").value = isNasal(c) ? "nasal" : "injection";
+    document.getElementById("compound-halflife").value = c.halfLifeDays != null ? c.halfLifeDays : "";
+    document.getElementById("compound-mcg-per-spray").value = c.mcgPerSpray != null ? c.mcgPerSpray : "";
+    updateCompoundRouteFields();
     document.getElementById("compound-submit").textContent = "Save changes";
     document.getElementById("compound-cancel").classList.remove("hidden");
     window.scrollTo({ top: document.getElementById("compounds-heading").offsetTop - 20, behavior: "smooth" });
@@ -596,7 +674,7 @@
     if (!c) return;
     const inUse = entries.some((e) => e.compoundId === id);
     if (inUse) {
-      showError(`Can't delete ${c.name} - delete its pin history first.`);
+      showError(`Can't delete ${c.name} - delete its dose history first.`);
       return;
     }
     if (!window.confirm(`Delete ${c.name}?`)) return;
@@ -685,11 +763,31 @@
     const compound = getCompound(selectedChartCompoundId);
     const compoundEntries = entries.filter((e) => e.compoundId === selectedChartCompoundId);
     const todayMs = dateStrToMs(todayDateStr());
+    const sub = document.getElementById("stat-sub");
+
+    if (isNasal(compound)) {
+      const today = todayDateStr();
+      const todays = compoundEntries.filter((e) => e.date === today);
+      const totalMcg = mgToMcg(todays.reduce((s, e) => s + e.dose, 0));
+      document.getElementById("stat-label").textContent = `${compound.name} today`;
+      document.getElementById("stat-value").textContent = `${totalMcg} mcg`;
+      if (compoundEntries.length === 0) {
+        sub.textContent = "No doses logged for this compound yet";
+      } else {
+        const weekStart = addDays(todayMs, -6);
+        const weekMcg = compoundEntries.filter((e) => dateStrToMs(e.date) >= weekStart && dateStrToMs(e.date) <= todayMs).reduce((s, e) => s + e.dose, 0) * 1000;
+        const avg = Math.round(weekMcg / 7);
+        sub.textContent = todays.length
+          ? `${todays.length} dose${todays.length === 1 ? "" : "s"} today · 7-day avg ${avg} mcg/day`
+          : `None yet today · 7-day avg ${avg} mcg/day`;
+      }
+      return;
+    }
+
     const level = levelAt(todayMs, compoundEntries, compound.halfLifeDays);
     document.getElementById("stat-label").textContent = `Estimated ${compound.name} level today`;
     document.getElementById("stat-value").textContent = `${level.toFixed(2)} mg`;
 
-    const sub = document.getElementById("stat-sub");
     if (compoundEntries.length === 0) {
       sub.textContent = "No entries logged for this compound yet";
     } else {
@@ -706,9 +804,13 @@
     svg.innerHTML = "";
 
     const compound = selectedChartCompoundId ? getCompound(selectedChartCompoundId) : null;
-    document.getElementById("chart-subtitle").textContent = compound
-      ? `${compound.name} · ${compound.halfLifeDays}-day half-life · dashed = projected, assuming no further pins`
-      : "Add a compound to see a projection here";
+    const nasal = isNasal(compound);
+    document.getElementById("chart-heading").textContent = nasal ? "Daily use" : "Amount in system";
+    document.getElementById("chart-subtitle").textContent = !compound
+      ? "Add a compound to see a projection here"
+      : nasal
+        ? `${compound.name} · nasal spray · total mcg per day`
+        : `${compound.name} · ${compound.halfLifeDays}-day half-life · dashed = projected, assuming no further pins`;
 
     container.className = "chart-container " + (compound ? compoundColorClass(compound.id) : "");
 
@@ -721,6 +823,11 @@
     }
     emptyState.classList.add("hidden");
     svg.classList.remove("hidden");
+
+    if (nasal) {
+      renderUsageChart(svg, tooltip, container, compoundEntries);
+      return;
+    }
 
     const halfLifeDays = compound.halfLifeDays;
     const todayMs = dateStrToMs(todayDateStr());
@@ -828,6 +935,87 @@
     }
 
     attachHoverLayer(svg, tooltip, container, margin, plotW, plotH, width, height, xForT, yForLevel, startMs, endMs, points, stepHours, (p) => `${p.level.toFixed(2)} mg`);
+  }
+
+  // Daily totals as bars (nasal sprays). Buckets by week when the range is long so bars stay readable.
+  function renderUsageChart(svg, tooltip, container, compoundEntries) {
+    const DAY = 86400000;
+    const todayMs = dateStrToMs(todayDateStr());
+    const earliestMs = Math.min(...compoundEntries.map((e) => dateStrToMs(e.date)));
+    let startMs;
+    if (chartRange === "30") startMs = addDays(todayMs, -29);
+    else if (chartRange === "90") startMs = addDays(todayMs, -89);
+    else startMs = Math.min(earliestMs, addDays(todayMs, -13));
+
+    const totalDays = Math.round((todayMs - startMs) / DAY) + 1;
+    const bucketDays = totalDays > 120 ? 7 : 1;
+    const nBuckets = Math.ceil(totalDays / bucketDays);
+    const endMs = startMs + nBuckets * bucketDays * DAY;
+
+    const totals = new Array(nBuckets).fill(0);
+    for (const e of compoundEntries) {
+      const idx = Math.floor((dateStrToMs(e.date) - startMs) / (bucketDays * DAY));
+      if (idx >= 0 && idx < nBuckets) totals[idx] += e.dose * 1000;
+    }
+    const points = totals.map((mcg, i) => ({
+      t: startMs + (i + 0.5) * bucketDays * DAY,
+      bucketStart: startMs + i * bucketDays * DAY,
+      value: Math.round(mcg * 10) / 10,
+    }));
+
+    const yMax = niceMax(Math.max(...totals) * 1.15 || 1);
+    const width = 760;
+    const height = 280;
+    const margin = { top: 14, right: 16, bottom: 28, left: 46 };
+    const plotW = width - margin.left - margin.right;
+    const plotH = height - margin.top - margin.bottom;
+    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    svg.setAttribute("preserveAspectRatio", "none");
+
+    const xForT = (t) => margin.left + ((t - startMs) / (endMs - startMs)) * plotW;
+    const yForVal = (v) => margin.top + plotH - (v / yMax) * plotH;
+    const dayLabel = (ms) => new Date(ms).toLocaleDateString(undefined, { timeZone: "UTC", month: "short", day: "numeric" });
+
+    for (let i = 0; i <= 4; i++) {
+      const val = (yMax / 4) * i;
+      const y = yForVal(val);
+      svg.appendChild(svgEl("line", { x1: margin.left, x2: width - margin.right, y1: y, y2: y, class: "grid-line" }));
+      const label = svgEl("text", { x: margin.left - 8, y: y + 4, class: "axis-label", "text-anchor": "end" });
+      label.textContent = val >= 10 ? Math.round(val) : val.toFixed(1);
+      svg.appendChild(label);
+    }
+
+    const tickCount = Math.min(6, nBuckets);
+    for (let i = 0; i < tickCount; i++) {
+      const b = tickCount === 1 ? 0 : Math.round((i * (nBuckets - 1)) / (tickCount - 1));
+      const label = svgEl("text", {
+        x: xForT(points[b].t), y: height - 6, class: "axis-label",
+        "text-anchor": tickCount > 1 && i === 0 ? "start" : i === tickCount - 1 && tickCount > 1 ? "end" : "middle",
+      });
+      label.textContent = dayLabel(points[b].bucketStart);
+      svg.appendChild(label);
+    }
+
+    // Bars: capped at 24 wide with ~30% of each slot left as a gap; rounded top, square at the baseline.
+    const slot = plotW / nBuckets;
+    const barW = Math.min(24, slot * 0.7);
+    const baseY = margin.top + plotH;
+    points.forEach((p) => {
+      if (p.value <= 0) return;
+      const x = xForT(p.t) - barW / 2;
+      const y = yForVal(p.value);
+      const h = baseY - y;
+      const r = Math.min(4, barW / 2, h);
+      svg.appendChild(svgEl("path", {
+        class: "usage-bar",
+        d: `M${x},${baseY} L${x},${y + r} Q${x},${y} ${x + r},${y} L${x + barW - r},${y} Q${x + barW},${y} ${x + barW},${y + r} L${x + barW},${baseY} Z`,
+      }));
+    });
+
+    svg.appendChild(svgEl("line", { x1: margin.left, x2: width - margin.right, y1: baseY, y2: baseY, class: "axis-baseline" }));
+
+    attachHoverLayer(svg, tooltip, container, margin, plotW, plotH, width, height, xForT, yForVal, startMs, endMs, points, 24,
+      (p) => (bucketDays === 7 ? `${p.value} mcg · week of ${dayLabel(p.bucketStart)}` : `${p.value} mcg`));
   }
 
   // Shared crosshair/tooltip hover layer for both the pin chart and the weight chart.
@@ -1168,6 +1356,7 @@
     renderCalendar();
     renderCompoundsList();
     populateCompoundSelect(document.getElementById("entry-compound"), document.getElementById("entry-compound").value || (compounds[0] && compounds[0].id));
+    updateDoseFields();
     populateCompoundSelect(document.getElementById("chart-compound-select"), selectedChartCompoundId);
     renderStat();
     renderChart();

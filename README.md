@@ -1,30 +1,37 @@
 # Pin Tracker
 
-A small, self-hosted app for logging peptide pins across multiple compounds,
-tracking body weight, and a Telegram assistant you can text to log things,
-ask questions, and get a daily look-ahead.
+A small, self-hosted app for logging peptide doses (injections and nasal
+sprays) across multiple compounds, tracking body weight, and a Telegram
+assistant you can text to log things, ask questions, and get a daily
+look-ahead.
 
-- **Compounds** — track any number of peptides, each with its own editable
-  half-life (comes seeded with Retatrutide, Tirzepatide, Semaglutide, and
-  Cagrilintide as a starting point — half-lives are approximate, edit them
-  to match your source). Add, rename, or delete your own.
-- **Calendar** — days you logged a pin are marked with a color-coded dot per
+- **Compounds** — track any number of peptides. Injectables each have an
+  editable half-life (seeded with Retatrutide, Tirzepatide, Semaglutide, and
+  Cagrilintide — half-lives are approximate, edit them to match your
+  source). Nasal sprays (seeded with Semax and Selank) take an optional mcg
+  per spray from your bottle's label. Add, rename, or delete your own.
+- **Calendar** — days you logged a dose are marked with a color-coded dot per
   compound; click any day to log or jump to it.
-- **Log a pin** — pick the compound, date, dose (mg), and an optional note.
-  Click an entry in the Pin history list to edit it.
-- **Amount in system** — pick a compound from the dropdown to see a chart of
-  its estimated level over time, modeled as exponential decay from that
-  compound's half-life. The solid line is computed from your logged pins;
-  the dashed line projects forward assuming no further pins.
+- **Log a dose** — pick the compound, date, and amount (mg for injections;
+  mcg or a spray count for nasal sprays), plus an optional note. Click an
+  entry in the Dose history list to edit it.
+- **Amount in system** — for injectables, a chart of the estimated level over
+  time, modeled as exponential decay from the compound's half-life. The
+  solid line is computed from your logged pins; the dashed line projects
+  forward assuming no further pins.
+- **Daily use** — nasal sprays clear within hours, so instead of a level
+  they get a bar chart of mcg per day, with today's total and a 7-day
+  average.
 - **Weight** — a separate log of body-weight measurements (lb or kg) with
   its own trend chart and latest-vs-previous delta.
 - **iPhone app** — open the site in Safari, tap Share → Add to Home Screen.
   It gets its own icon and opens full-screen. Over HTTPS (see Tailscale
   below) it also works offline with your last-loaded data.
 - **Telegram assistant** (`bot.mjs`) — text it "pinned 2.5 reta left thigh",
-  "weighed 181.4", "how much tirz is in my system?", "what's due this
-  week?", or "undo that". Every morning it sends a look-ahead: levels, which
-  pins are due, weight trend, and (if connected) Canvas assignments due.
+  "2 sprays semax", "weighed 181.4", "how much tirz is in my system?",
+  "what's due this week?", or "undo that". Every morning it sends a
+  look-ahead: levels, which pins are due, recent spray use, weight trend,
+  and (if connected) Canvas assignments due.
 
 The page auto-detects storage: if `server.js` is running, everything is
 shared across every device that opens the page; otherwise it falls back to

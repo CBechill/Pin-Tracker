@@ -48,7 +48,7 @@
     </section>
 
     <section class="card form-card" aria-labelledby="form-heading">
-      <h2 id="form-heading">Log a pin</h2>
+      <h2 id="form-heading">Log a dose</h2>
       <form id="entry-form" class="entry-form">
         <input type="hidden" id="entry-id" />
         <label class="field">
@@ -59,10 +59,16 @@
           <span>Date</span>
           <input type="date" id="entry-date" required />
         </label>
-        <label class="field">
-          <span>Dose (mg)</span>
-          <input type="number" id="entry-dose" min="0" step="0.05" placeholder="e.g. 2" required />
-        </label>
+        <div class="field-row">
+          <label class="field field-narrow hidden" id="entry-sprays-field">
+            <span>Sprays</span>
+            <input type="number" id="entry-sprays" min="1" step="1" placeholder="e.g. 2" />
+          </label>
+          <label class="field">
+            <span id="entry-dose-label">Dose (mg)</span>
+            <input type="number" id="entry-dose" min="0" step="0.05" placeholder="e.g. 2" required />
+          </label>
+        </div>
         <label class="field">
           <span>Note <span class="optional">(optional)</span></span>
           <input type="text" id="entry-note" placeholder="e.g. left thigh" maxlength="120" />
@@ -76,7 +82,7 @@
 
     <section class="card compounds-card" aria-labelledby="compounds-heading">
       <h2 id="compounds-heading">Compounds</h2>
-      <p class="card-hint">Half-lives are approximate — edit any of these to match your source.</p>
+      <p class="card-hint">Half-lives are approximate — edit any of these to match your source. For nasal sprays, set mcg per spray from your bottle's label.</p>
       <div id="compounds-list" class="compounds-list"></div>
 
       <form id="compound-form" class="compound-form">
@@ -87,8 +93,21 @@
             <input type="text" id="compound-name" placeholder="e.g. Semaglutide" maxlength="60" required />
           </label>
           <label class="field field-narrow">
+            <span>Route</span>
+            <select id="compound-route">
+              <option value="injection">Injection</option>
+              <option value="nasal">Nasal spray</option>
+            </select>
+          </label>
+        </div>
+        <div class="field-row">
+          <label class="field" id="compound-halflife-field">
             <span>Half-life (days)</span>
-            <input type="number" id="compound-halflife" min="0.1" step="0.1" placeholder="e.g. 6" required />
+            <input type="number" id="compound-halflife" min="0.01" step="any" placeholder="e.g. 6" required />
+          </label>
+          <label class="field hidden" id="compound-spray-field">
+            <span>mcg per spray <span class="optional">(optional)</span></span>
+            <input type="number" id="compound-mcg-per-spray" min="1" step="any" placeholder="e.g. 100" />
           </label>
         </div>
         <div class="form-actions">
@@ -121,16 +140,16 @@
       </div>
 
       <div id="chart-container" class="chart-container">
-        <p id="chart-empty" class="empty-state">Log a pin for this compound to see your projected level here.</p>
+        <p id="chart-empty" class="empty-state">Log a dose of this compound to see it charted here.</p>
         <svg id="chart-svg" class="chart-svg" xmlns="http://www.w3.org/2000/svg"></svg>
         <div id="chart-tooltip" class="chart-tooltip hidden"></div>
       </div>
     </section>
 
     <section class="card entries-card" aria-labelledby="entries-heading">
-      <h2 id="entries-heading">Pin history</h2>
+      <h2 id="entries-heading">Dose history</h2>
       <div id="entries-list" class="entries-list">
-        <p id="entries-empty" class="empty-state">No pins logged yet.</p>
+        <p id="entries-empty" class="empty-state">No doses logged yet.</p>
       </div>
     </section>
 
